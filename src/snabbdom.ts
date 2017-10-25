@@ -45,6 +45,15 @@ const hooks: (keyof Module)[] = ['create', 'update', 'remove', 'destroy', 'pre',
 export {h} from './h';
 export {thunk} from './thunk';
 
+const cloneVNode = (vnode: VNode): VNode => ({
+  sel: vnode.sel,
+  data: vnode.data,
+  children: vnode.children,
+  elm: vnode.elm,
+  text: vnode.text,
+  key: vnode.key
+});
+
 export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
   let i: number, j: number, cbs = ({} as ModuleHooks);
 
@@ -75,7 +84,7 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     };
   }
 
-  function createElm(vnode: VNode, insertedVnodeQueue: VNodeQueue): Node {
+  function createElm(vnode: VNode, insertedVnodeQueue: VNodeQueue): VNode {
     let i: any, data = vnode.data;
     if (data !== undefined) {
       if (isDef(i = data.hook) && isDef(i = i.init)) {
@@ -83,6 +92,9 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
         data = vnode.data;
       }
     }
+
+    vnode = cloneVNode(vnode);
+
     let children = vnode.children, sel = vnode.sel;
     if (sel === '!') {
       if (isUndef(vnode.text)) {
@@ -105,7 +117,8 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
         for (i = 0; i < children.length; ++i) {
           const ch = children[i];
           if (ch != null) {
-            api.appendChild(elm, createElm(ch as VNode, insertedVnodeQueue));
+            children[i] = createElm(ch as VNode, insertedVnodeQueue)
+            api.appendChild(elm, (children[i] as VNode).elm!);
           }
         }
       } else if (is.primitive(vnode.text)) {
@@ -119,7 +132,7 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     } else {
       vnode.elm = api.createTextNode(vnode.text as string);
     }
-    return vnode.elm;
+    return vnode;
   }
 
   function addVnodes(parentElm: Node,
@@ -127,13 +140,16 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
                      vnodes: Array<VNode>,
                      startIdx: number,
                      endIdx: number,
-                     insertedVnodeQueue: VNodeQueue) {
+                     insertedVnodeQueue: VNodeQueue): Array<VNode> {
+    vnodes = vnodes.slice();
     for (; startIdx <= endIdx; ++startIdx) {
       const ch = vnodes[startIdx];
       if (ch != null) {
-        api.insertBefore(parentElm, createElm(ch, insertedVnodeQueue), before);
+        vnodes[startIdx] = createElm(ch, insertedVnodeQueue)
+        api.insertBefore(parentElm, vnodes[startIdx].elm!, before);
       }
     }
+    return vnodes
   }
 
   function invokeDestroyHook(vnode: VNode) {
@@ -179,7 +195,9 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
   function updateChildren(parentElm: Node,
                           oldCh: Array<VNode>,
                           newCh: Array<VNode>,
-                          insertedVnodeQueue: VNodeQueue) {
+                          insertedVnodeQueue: VNodeQueue): Array<VNode> {
+    newCh = newCh.slice();
+
     let oldStartIdx = 0, newStartIdx = 0;
     let oldEndIdx = oldCh.length - 1;
     let oldStartVnode = oldCh[0];
@@ -202,20 +220,20 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
       } else if (newEndVnode == null) {
         newEndVnode = newCh[--newEndIdx];
       } else if (sameVnode(oldStartVnode, newStartVnode)) {
-        patchVnode(oldStartVnode, newStartVnode, insertedVnodeQueue);
+        newCh[newStartIdx] = patchVnode(oldStartVnode, newStartVnode, insertedVnodeQueue);
         oldStartVnode = oldCh[++oldStartIdx];
         newStartVnode = newCh[++newStartIdx];
       } else if (sameVnode(oldEndVnode, newEndVnode)) {
-        patchVnode(oldEndVnode, newEndVnode, insertedVnodeQueue);
+        newCh[newEndIdx] = patchVnode(oldEndVnode, newEndVnode, insertedVnodeQueue);
         oldEndVnode = oldCh[--oldEndIdx];
         newEndVnode = newCh[--newEndIdx];
       } else if (sameVnode(oldStartVnode, newEndVnode)) { // Vnode moved right
-        patchVnode(oldStartVnode, newEndVnode, insertedVnodeQueue);
+        newCh[newEndIdx] = patchVnode(oldStartVnode, newEndVnode, insertedVnodeQueue);
         api.insertBefore(parentElm, oldStartVnode.elm as Node, api.nextSibling(oldEndVnode.elm as Node));
         oldStartVnode = oldCh[++oldStartIdx];
         newEndVnode = newCh[--newEndIdx];
       } else if (sameVnode(oldEndVnode, newStartVnode)) { // Vnode moved left
-        patchVnode(oldEndVnode, newStartVnode, insertedVnodeQueue);
+        newCh[newStartIdx] = patchVnode(oldEndVnode, newStartVnode, insertedVnodeQueue);
         api.insertBefore(parentElm, oldEndVnode.elm as Node, oldStartVnode.elm as Node);
         oldEndVnode = oldCh[--oldEndIdx];
         newStartVnode = newCh[++newStartIdx];
@@ -225,14 +243,16 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
         }
         idxInOld = oldKeyToIdx[newStartVnode.key as string];
         if (isUndef(idxInOld)) { // New element
-          api.insertBefore(parentElm, createElm(newStartVnode, insertedVnodeQueue), oldStartVnode.elm as Node);
+          newCh[newStartIdx] = createElm(newStartVnode, insertedVnodeQueue)
+          api.insertBefore(parentElm, newCh[newStartIdx].elm!, oldStartVnode.elm as Node);
           newStartVnode = newCh[++newStartIdx];
         } else {
           elmToMove = oldCh[idxInOld];
           if (elmToMove.sel !== newStartVnode.sel) {
-            api.insertBefore(parentElm, createElm(newStartVnode, insertedVnodeQueue), oldStartVnode.elm as Node);
+            newCh[newStartIdx] = createElm(newStartVnode, insertedVnodeQueue)
+            api.insertBefore(parentElm, newCh[newStartIdx].elm!, oldStartVnode.elm as Node);
           } else {
-            patchVnode(elmToMove, newStartVnode, insertedVnodeQueue);
+            newCh[newStartIdx] = patchVnode(elmToMove, newStartVnode, insertedVnodeQueue);
             oldCh[idxInOld] = undefined as any;
             api.insertBefore(parentElm, (elmToMove.elm as Node), oldStartVnode.elm as Node);
           }
@@ -242,21 +262,26 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     }
     if (oldStartIdx > oldEndIdx) {
       before = newCh[newEndIdx+1] == null ? null : newCh[newEndIdx+1].elm;
-      addVnodes(parentElm, before, newCh, newStartIdx, newEndIdx, insertedVnodeQueue);
+      newCh = addVnodes(parentElm, before, newCh, newStartIdx, newEndIdx, insertedVnodeQueue);
     } else if (newStartIdx > newEndIdx) {
       removeVnodes(parentElm, oldCh, oldStartIdx, oldEndIdx);
     }
+    return newCh;
   }
 
-  function patchVnode(oldVnode: VNode, vnode: VNode, insertedVnodeQueue: VNodeQueue) {
+  function patchVnode(oldVnode: VNode, vnode: VNode, insertedVnodeQueue: VNodeQueue): VNode {
     let i: any, hook: any;
     if (isDef(i = vnode.data) && isDef(hook = i.hook) && isDef(i = hook.prepatch)) {
       i(oldVnode, vnode);
     }
+
+    const clonedVNode = cloneVNode(vnode);
+    if (oldVnode === vnode) return clonedVNode;
+    vnode = clonedVNode
+
     const elm = vnode.elm = (oldVnode.elm as Node);
     let oldCh = oldVnode.children;
-    let ch = vnode.children;
-    if (oldVnode === vnode) return;
+    let ch = vnode.children ? vnode.children.slice() : vnode.children;
     if (vnode.data !== undefined) {
       for (i = 0; i < cbs.update.length; ++i) cbs.update[i](oldVnode, vnode);
       i = vnode.data.hook;
@@ -264,10 +289,12 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     }
     if (isUndef(vnode.text)) {
       if (isDef(oldCh) && isDef(ch)) {
-        if (oldCh !== ch) updateChildren(elm, oldCh as Array<VNode>, ch as Array<VNode>, insertedVnodeQueue);
+        if (oldCh !== ch) {
+          ch = updateChildren(elm, oldCh as Array<VNode>, ch as Array<VNode>, insertedVnodeQueue);
+        }
       } else if (isDef(ch)) {
         if (isDef(oldVnode.text)) api.setTextContent(elm, '');
-        addVnodes(elm, null, ch as Array<VNode>, 0, (ch as Array<VNode>).length - 1, insertedVnodeQueue);
+        ch = addVnodes(elm, null, ch as Array<VNode>, 0, (ch as Array<VNode>).length - 1, insertedVnodeQueue);
       } else if (isDef(oldCh)) {
         removeVnodes(elm, oldCh as Array<VNode>, 0, (oldCh as Array<VNode>).length - 1);
       } else if (isDef(oldVnode.text)) {
@@ -279,6 +306,8 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     if (isDef(hook) && isDef(i = hook.postpatch)) {
       i(oldVnode, vnode);
     }
+    vnode.children = ch;
+    return vnode;
   }
 
   return function patch(oldVnode: VNode | Element, vnode: VNode): VNode {
@@ -291,12 +320,12 @@ export function init(modules: Array<Partial<Module>>, domApi?: DOMAPI) {
     }
 
     if (sameVnode(oldVnode, vnode)) {
-      patchVnode(oldVnode, vnode, insertedVnodeQueue);
+      vnode = patchVnode(oldVnode, vnode, insertedVnodeQueue);
     } else {
       elm = oldVnode.elm as Node;
       parent = api.parentNode(elm);
 
-      createElm(vnode, insertedVnodeQueue);
+      vnode = createElm(vnode, insertedVnodeQueue);
 
       if (parent !== null) {
         api.insertBefore(parent, vnode.elm as Node, api.nextSibling(elm));

@@ -56,11 +56,6 @@ function updateEventListeners(oldVnode: VNode, vnode?: VNode): void {
       elm: Element = (vnode && vnode.elm) as Element,
       name: string;
 
-  // optimization for reused immutable handlers
-  if (oldOn === on) {
-    return;
-  }
-
   // remove existing listeners which no longer used
   if (oldOn && oldListener) {
     // if element changed or deleted we remove all existing listeners unconditionally
